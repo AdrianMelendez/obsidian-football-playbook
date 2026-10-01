@@ -8,11 +8,15 @@ Design and organize American football playbooks in Obsidian. Plays are drawn wit
 
 ## Features
 
-- **Playbooks per team**: 11-man tackle, 9-man tackle or 5v5 flag, offense only or offense + defense.
+- **Playbooks per team**: 11-man tackle, 9-man tackle or 5v5 flag; offense only, defense only, or both.
+- **Defense first**: defense plays and formations are drawn from the defense's point of view, with the defense at the bottom and highlighted and the offense faded at the top.
 - **New play in one click**: pick a formation and get a drawing with the field (yard lines, hashes, yard numbers, line of scrimmage) and every player lined up. Optionally show the opponent's formation faded behind.
 - **Formation library**: built-in formations for each format, each one a drawing you can open, edit (move players, change labels), rename, duplicate or delete from the Formations section of the panel. You can also turn any play drawing into a formation with **Save current drawing as formation**. Deleted a built-in by mistake? Run **Restore built-in formations**.
 - **Notes for every play**: general notes plus an assignments table with one row per player.
-- **Playbook panel**: browse plays by side and formation; rename, duplicate or delete a play (note and drawing together) from its menu.
+- **Mirror**: flip a play or formation to the other side in one click. "Trips Right" becomes "Trips Left", and left/right in the play's notes swap too.
+- **Playbook panel**: browse plays by side and formation; rename, duplicate, mirror or delete a play (note and drawing together) from its menu.
+- **Share with your team**: export a whole playbook as one `.playbook.json` file and import it on any device. No server or account needed.
+- **Works on mobile**: browse, draw, import and share on phones and tablets (PDF export needs a computer).
 - **PDF export**: one button exports the team notes and every play, one per page.
 
 ## Getting started
@@ -20,6 +24,14 @@ Design and organize American football playbooks in Obsidian. Plays are drawn wit
 1. Install **Football Playbook** and **Excalidraw** from Settings → Community plugins. The panel shows an install button if Excalidraw is missing.
 2. Click the clipboard icon in the left ribbon to open the Playbooks panel.
 3. Click **New playbook**, then **New play**.
+
+## Sharing a playbook
+
+1. In the Playbooks panel, select the share icon next to the playbook (or **Share playbook** in its ⋯ menu). On a computer you choose where to save `<Team>.playbook.json`; on a phone the share sheet opens.
+2. Send the file to your coaches and players: email, chat, shared drive.
+3. They install Football Playbook and Excalidraw, then select the import icon at the top of the panel and pick the file.
+
+Importing a playbook that already exists asks whether to replace it (the old copy goes to the trash) or keep both. The team's formations are added too, without touching formations the person already has. Files are checked before import, and anything unsafe is skipped.
 
 ## Where things are stored
 

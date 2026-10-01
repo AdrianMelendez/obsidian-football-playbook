@@ -5,7 +5,12 @@ export type Formation = Record<string, Player[]>;
 
 export const YD = 30; // pixels per yard in drawings; the ball is at (0, 0)
 
-// Enough of an Excalidraw element to read players back from a drawing.
+interface Binding {
+	focus?: number;
+	fixedPoint?: [number, number] | null;
+}
+
+// Enough of an Excalidraw element to read players back from a drawing and to mirror it.
 export interface DrawingElement {
 	type: string;
 	x: number;
@@ -14,7 +19,12 @@ export interface DrawingElement {
 	height: number;
 	text?: string;
 	isDeleted?: boolean;
-	customData?: { playbook?: { side: Side; label: string } };
+	angle?: number;
+	points?: [number, number][];
+	startBinding?: Binding | null;
+	endBinding?: Binding | null;
+	// primary: the side drawn at the bottom. Missing in drawings made before it existed, which all had the offense there.
+	customData?: { playbook?: { side: Side; label: string; primary?: Side } };
 }
 
 export interface Format {
@@ -100,7 +110,7 @@ export function playerNames(side: Side, players: Player[]): string[] {
 export function readPlayers(elements: DrawingElement[], side: Side): Player[] {
 	const live = elements.filter((e) => !e.isDeleted);
 	const texts = live.filter((e) => e.type === "text");
-	const round = (v: number) => Math.round(v * 10) / 10;
+	const round = (v: number) => Math.round(v * 10) / 10 + 0; // + 0 turns -0 into 0
 	return live.flatMap((e): Player[] => {
 		const tag = e.customData?.playbook;
 		if (tag?.side !== side) return [];
@@ -109,7 +119,10 @@ export function readPlayers(elements: DrawingElement[], side: Side): Player[] {
 		const inside = (t: DrawingElement) =>
 			Math.abs(t.x + t.width / 2 - cx) < e.width / 2 && Math.abs(t.y + t.height / 2 - cy) < e.height / 2;
 		const label = texts.find(inside)?.text?.trim() || tag.label;
-		const depth = cy / YD;
-		return [[label, round(cx / YD), round(side === "offense" ? depth : -depth)]];
+		// Back to offense-relative yards (y > 0 is the offense backfield); defense-first drawings are turned around.
+		const dir = (tag.primary ?? "offense") === "offense" ? 1 : -1;
+		const x = (cx / YD) * dir;
+		const y = (cy / YD) * dir;
+		return [[label, round(x), round(side === "offense" ? y : -y)]];
 	});
 }

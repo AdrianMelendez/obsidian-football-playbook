@@ -20,19 +20,28 @@ for (const [format, f] of Object.entries(FORMATS)) {
 }
 assert.deepEqual(playerNames("defense", FORMATS["5v5 flag"].defense["Man (1-4)"]), ["R", "D right", "D left 1", "D left 2", "S"]);
 // readPlayers gets back what was drawn: shape tagged with side/label, text centered in it (as drawPlayers does).
-const drawn = (side: "offense" | "defense", players: typeof FORMATS["9-man tackle"]["offense"][string]) =>
+// primary is the side at the bottom; undefined is how drawings made before 0.2 look (offense at the bottom).
+type Side = "offense" | "defense";
+const drawn = (side: Side, players: typeof FORMATS["9-man tackle"]["offense"][string], primary?: Side) =>
 	players.flatMap(([label, x, depth]) => {
-		const cx = x * YD;
-		const cy = (side === "offense" ? depth : -depth) * YD;
+		const dir = primary === "defense" ? -1 : 1;
+		const cx = x * YD * dir;
+		const cy = (side === "offense" ? depth : -depth) * YD * dir;
 		return [
-			{ type: "ellipse", x: cx - 13, y: cy - 13, width: 26, height: 26, customData: { playbook: { side, label } } },
+			{ type: "ellipse", x: cx - 13, y: cy - 13, width: 26, height: 26, customData: { playbook: { side, label, primary } } },
 			{ type: "text", x: cx - 6, y: cy - 8, width: 12, height: 16, text: label },
 		];
 	});
 const offense = FORMATS["9-man tackle"].offense["2x2 Y Off"];
 const defense = FORMATS["9-man tackle"].defense["2-4-3"];
-assert.deepEqual(readPlayers([...drawn("offense", offense), ...drawn("defense", defense)], "offense"), offense);
-assert.deepEqual(readPlayers([...drawn("offense", offense), ...drawn("defense", defense)], "defense"), defense);
+for (const primary of [undefined, "offense", "defense"] as const) {
+	const scene = [...drawn("offense", offense, primary), ...drawn("defense", defense, primary)];
+	assert.deepEqual(readPlayers(scene, "offense"), offense, `offense read back, primary ${primary}`);
+	assert.deepEqual(readPlayers(scene, "defense"), defense, `defense read back, primary ${primary}`);
+}
+// Defense first: the defense is drawn below the line of scrimmage (y > 0), turned around.
+const fs = drawn("defense", defense, "defense").find((e) => e.text === "FS");
+assert.ok(fs && fs.y > 0, "defense-first drawing puts the defense at the bottom");
 const edited = drawn("offense", offense);
 edited[1].text = "LT"; // renamed first player
 edited[2] = { ...edited[2], isDeleted: true } as (typeof edited)[number]; // deleted second player

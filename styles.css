@@ -72,6 +72,10 @@
 .playbook-manager .pb-summary:hover .pb-actions,
 .playbook-manager .pb-actions:focus-within { opacity: 1; }
 @media (hover: none) { .playbook-manager .pb-actions { opacity: 1; } }
+/* Finger-sized targets on phones and tablets */
+.is-mobile .playbook-manager .pb-row,
+.is-mobile .playbook-manager .pb-summary { padding-top: 8px; padding-bottom: 8px; }
+.is-mobile .playbook-manager .pb-icon { padding: 7px; }
 .playbook-manager .pb-icon { padding: 3px; }
 
 /* Play notes and PDF exports (frontmatter: cssclasses: [football-play]) */
