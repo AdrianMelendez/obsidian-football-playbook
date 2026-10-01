@@ -1,0 +1,116 @@
+/* Playbooks panel */
+.playbook-manager { padding: var(--size-4-2) var(--size-4-2) var(--size-4-8); }
+.playbook-manager .pb-top { display: flex; gap: var(--size-4-2); margin-bottom: var(--size-4-3); }
+.playbook-manager .pb-new-play { flex: 1; gap: var(--size-4-1); }
+.playbook-manager .pb-btn-icon { display: flex; }
+.playbook-manager .pb-top svg { width: 16px; height: 16px; }
+.playbook-manager .pb-warn {
+	display: flex; flex-direction: column; gap: var(--size-4-2);
+	padding: var(--size-4-3); margin-bottom: var(--size-4-3);
+	border-radius: var(--radius-m); border: 1px solid rgba(var(--color-red-rgb), 0.4);
+	background: rgba(var(--color-red-rgb), 0.08); font-size: var(--font-ui-small);
+}
+.playbook-manager .pb-empty {
+	display: flex; flex-direction: column; align-items: center; gap: var(--size-4-2);
+	padding: var(--size-4-8) var(--size-4-4); color: var(--text-muted); font-size: var(--font-ui-small);
+}
+.playbook-manager .pb-empty-icon { color: var(--text-faint); }
+.playbook-manager .pb-empty-icon svg { width: 32px; height: 32px; }
+
+/* Collapsible sections: one per playbook, plus the formation library */
+.playbook-manager .pb-section { margin-bottom: var(--size-4-2); }
+.playbook-manager .pb-summary {
+	display: flex; align-items: center; gap: var(--size-4-1);
+	padding: var(--size-4-1) var(--size-4-1); border-radius: var(--radius-s);
+	list-style: none; cursor: pointer;
+}
+.playbook-manager .pb-summary::-webkit-details-marker { display: none; }
+.playbook-manager .pb-summary:hover { background: var(--nav-item-background-hover); }
+.playbook-manager .pb-chevron { display: flex; color: var(--text-faint); transition: transform 120ms ease; }
+.playbook-manager .pb-chevron svg { width: 14px; height: 14px; }
+.playbook-manager details[open] > .pb-summary .pb-chevron { transform: rotate(90deg); }
+.playbook-manager .pb-title {
+	min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+	font-weight: var(--font-semibold); color: var(--text-normal);
+}
+.playbook-manager .pb-badge {
+	flex-shrink: 0; padding: 1px var(--size-4-2); border-radius: var(--radius-l);
+	background: var(--background-modifier-hover); color: var(--text-muted); font-size: var(--font-ui-smaller);
+}
+.playbook-manager .pb-library { margin-top: var(--size-4-4); padding-top: var(--size-4-2); border-top: 1px solid var(--background-modifier-border); }
+
+/* Inside a section */
+.playbook-manager .pb-label {
+	display: flex; justify-content: space-between; margin: var(--size-4-3) var(--size-4-2) var(--size-4-1) 22px;
+	color: var(--text-faint); font-size: var(--font-ui-smaller); font-weight: var(--font-semibold);
+	letter-spacing: 0.06em; text-transform: uppercase;
+}
+.playbook-manager .pb-count { font-weight: normal; letter-spacing: 0; }
+.playbook-manager .pb-group { margin: var(--size-4-2) 0 2px 22px; color: var(--text-muted); font-size: var(--font-ui-small); font-weight: var(--font-medium); }
+.playbook-manager .pb-children {
+	margin-left: 26px; padding-left: var(--size-4-1);
+	border-left: 1px solid var(--nav-indentation-guide-color, var(--background-modifier-border));
+}
+.playbook-manager .pb-hint { margin: 2px var(--size-4-2) var(--size-4-1) 22px; color: var(--text-faint); font-size: var(--font-ui-smaller); }
+
+/* Rows: plays and formations */
+.playbook-manager .pb-row {
+	display: flex; align-items: center; gap: var(--size-4-2);
+	padding: 3px var(--size-4-1) 3px var(--size-4-2); border-radius: var(--radius-s);
+	color: var(--nav-item-color, var(--text-muted)); font-size: var(--nav-item-size, var(--font-ui-small)); cursor: pointer;
+}
+.playbook-manager .pb-row:hover { background: var(--nav-item-background-hover); color: var(--nav-item-color-hover, var(--text-normal)); }
+.playbook-manager .pb-row.is-active { background: var(--nav-item-background-active); color: var(--nav-item-color-active, var(--text-normal)); }
+.playbook-manager .pb-row:focus-visible,
+.playbook-manager .pb-icon:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--background-modifier-border-focus); }
+.playbook-manager .pb-row-icon { display: flex; color: var(--text-faint); }
+.playbook-manager .pb-row-icon svg,
+.playbook-manager .pb-icon svg { width: 14px; height: 14px; }
+.playbook-manager .pb-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.playbook-manager .pb-actions { display: flex; gap: 2px; margin-left: auto; opacity: 0; transition: opacity 100ms ease; }
+.playbook-manager .pb-row:hover .pb-actions,
+.playbook-manager .pb-summary:hover .pb-actions,
+.playbook-manager .pb-actions:focus-within { opacity: 1; }
+@media (hover: none) { .playbook-manager .pb-actions { opacity: 1; } }
+.playbook-manager .pb-icon { padding: 3px; }
+
+/* Play notes and PDF exports (frontmatter: cssclasses: [football-play]) */
+.football-play { --metadata-display-editing: none; --metadata-display-reading: none; } /* hide properties */
+.football-play .inline-title { display: none; }
+.football-play .internal-embed[src$=".excalidraw.md"],
+.football-play .internal-embed[src$=".excalidraw.md"] .excalidraw-svg,
+.football-play .internal-embed[src$=".excalidraw.md"] img { display: block; width: 100%; }
+.football-play.markdown-source-view.mod-cm6 .cm-table-widget .table-wrapper { width: 100%; } /* beats Obsidian's fit-content */
+.football-play h1,
+.football-play .HyperMD-header-1 {
+	text-transform: uppercase;
+	font-weight: 800;
+	letter-spacing: 0.02em;
+	border-bottom: 3px solid var(--color-red);
+	padding-bottom: 6px;
+}
+.football-play h1 + p { color: var(--text-muted); }
+.football-play table { width: 100%; border-collapse: collapse; }
+.football-play th,
+.football-play td {
+	border: none;
+	border-bottom: 1px solid var(--background-modifier-border);
+	padding: 8px 10px;
+	text-align: left;
+}
+.football-play thead th { font-size: var(--font-ui-small); text-transform: uppercase; color: var(--text-muted); }
+.football-play tbody tr:nth-child(even) { background: var(--background-secondary); }
+.football-play td:first-child { width: 20%; white-space: nowrap; font-weight: 700; color: var(--color-red); }
+.football-play .callout[data-callout="key"] {
+	--callout-color: var(--color-red-rgb);
+	--callout-icon: lucide-key;
+	background-color: rgba(var(--color-red-rgb), 0.08);
+	border-left: 3px solid rgb(var(--color-red-rgb));
+	border-radius: var(--radius-s);
+	mix-blend-mode: normal;
+}
+.football-play .callout[data-callout="key"] .callout-title { color: rgb(var(--color-red-rgb)); }
+.football-play .markdown-embed { border: none; padding: 0; }
+.football-play .markdown-embed-link { display: none; }
+.playbook-manager .pb-library { margin-top: 16px; border-top: 1px solid var(--background-modifier-border); padding-top: 8px; }
+.playbook-manager .pb-format { margin-top: 10px; font-weight: 600; }

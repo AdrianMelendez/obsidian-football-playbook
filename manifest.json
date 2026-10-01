@@ -1,0 +1,9 @@
+{
+	"id": "football-playbook",
+	"name": "Football Playbook",
+	"version": "0.1.0",
+	"minAppVersion": "1.8.7",
+	"description": "Manage American football playbooks: teams, formations and plays drawn with Excalidraw.",
+	"author": "Adrian Melendez",
+	"isDesktopOnly": false
+}
