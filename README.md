@@ -51,4 +51,4 @@ npm run deploy   # build and copy into a test vault (set VAULT=/path/to/vault)
 2. `git push --follow-tags`. The GitHub workflow builds and creates a draft release with `main.js`, `manifest.json` and `styles.css`.
 3. Publish the draft release on GitHub.
 
-First release only: submit the plugin to [obsidian-releases](https://github.com/obsidianmd/obsidian-releases) by adding an entry to `community-plugins.json`.
+First release only: sign in at [community.obsidian.md](https://community.obsidian.md), link your GitHub account and add the plugin to the community directory. It reads `manifest.json` from the default branch and installs files from the matching release. See [Submit your plugin](https://docs.obsidian.md/Plugins/Releasing/Submit+your+plugin).
