@@ -17,6 +17,15 @@
 .playbook-manager .pb-empty-icon { color: var(--text-faint); }
 .playbook-manager .pb-empty-icon svg { width: 32px; height: 32px; }
 
+/* Filter box and tag chips */
+.playbook-manager .pb-filter { margin-bottom: var(--size-4-2); }
+.playbook-manager .pb-chips { display: flex; flex-wrap: wrap; gap: var(--size-4-1); margin-bottom: var(--size-4-3); }
+.playbook-manager .pb-chip {
+	height: auto; padding: 2px var(--size-4-2); border-radius: var(--radius-l); box-shadow: none;
+	background: var(--background-modifier-hover); color: var(--text-muted); font-size: var(--font-ui-smaller);
+}
+.playbook-manager .pb-chip.is-active { background: var(--interactive-accent); color: var(--text-on-accent); }
+
 /* Collapsible sections: one per playbook, plus the formation library */
 .playbook-manager .pb-section { margin-bottom: var(--size-4-2); }
 .playbook-manager .pb-summary {

@@ -17,9 +17,13 @@ export function mirroredName(name: string): string {
 }
 
 // Mirrored copy of a play note: swaps left/right wording in the body, points the embed at the new drawing and retitles
-// it. The frontmatter is kept as is.
+// it. In the frontmatter only the ball position changes sides.
 export function mirrorNote(text: string, oldDrawing: string, newDrawing: string, oldName: string, name: string): string {
 	const end = text.startsWith("---\n") ? text.indexOf("\n---", 4) + 4 : 0;
+	const frontmatter = text
+		.slice(0, end)
+		.split("\n")
+		.map((line) => (line.startsWith("ball:") ? swapSides(line) : line));
 	const body = text
 		.slice(end)
 		.split("\n")
@@ -27,7 +31,7 @@ export function mirrorNote(text: string, oldDrawing: string, newDrawing: string,
 			if (line.includes("![[")) return line.split(oldDrawing).join(newDrawing);
 			return line === `# ${oldName}` ? `# ${name}` : swapSides(line);
 		});
-	return text.slice(0, end) + body.join("\n");
+	return frontmatter.join("\n") + body.join("\n");
 }
 
 // Flips drawing elements left-right around the middle of the field (x = 0). Returns new objects.

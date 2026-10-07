@@ -1,6 +1,6 @@
 // Checks every built-in formation: right player count, inside the field, no overlapping players.
 import assert from "node:assert";
-import { FORMATS, YD, playerNames, readPlayers } from "../src/formations.ts";
+import { FORMATS, YD, onHash, playerNames, readPlayers } from "../src/formations.ts";
 
 for (const [format, f] of Object.entries(FORMATS)) {
 	for (const side of ["offense", "defense"] as const) {
@@ -46,4 +46,29 @@ const edited = drawn("offense", offense);
 edited[1].text = "LT"; // renamed first player
 edited[2] = { ...edited[2], isDeleted: true } as (typeof edited)[number]; // deleted second player
 assert.deepEqual(readPlayers(edited, "offense").slice(0, 2).map((p) => p[0]), ["LT", "T"]);
+// Ball on a hash: the core moves with the ball, nobody leaves the field or overlaps, and nobody swaps places.
+for (const [format, f] of Object.entries(FORMATS)) {
+	if (!f.hash) continue;
+	for (const side of ["offense", "defense"] as const) {
+		for (const [name, players] of Object.entries(f[side])) {
+			assert.deepEqual(onHash(players, f, 0), players, `${format} ${name}: middle is unchanged`);
+			for (const shift of [-f.hash, f.hash]) {
+				const moved = onHash(players, f, shift);
+				const where = `${format} ${side} "${name}" shifted ${shift.toFixed(1)}`;
+				moved.forEach(([label, x], i) => {
+					assert.ok(Math.abs(x) + 0.5 <= f.width / 2, `${where}: ${label} outside field`);
+					if (Math.abs(players[i][1]) <= 4) assert.ok(Math.abs(x - (players[i][1] + shift)) < 0.06, `${where}: ${label} moves with the ball`);
+				});
+				for (let i = 0; i < players.length; i++) {
+					for (let j = i + 1; j < players.length; j++) {
+						const [a, ax, ad] = moved[i];
+						const [b, bx, bd] = moved[j];
+						assert.ok(Math.hypot(ax - bx, ad - bd) >= 0.9, `${where}: ${a} overlaps ${b}`);
+						if (players[i][1] < players[j][1]) assert.ok(ax <= bx, `${where}: ${a} and ${b} swapped`);
+					}
+				}
+			}
+		}
+	}
+}
 console.log("formations ok");

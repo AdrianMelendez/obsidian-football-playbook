@@ -11,6 +11,7 @@ assert.equal(swapSides("Brighton alright, cleft"), "Brighton alright, cleft"); /
 const note = [
 	"---",
 	'formation: "Trips Right"',
+	'ball: "left hash"',
 	"---",
 	"# deuce rt hitches",
 	"*Offense · Trips Right*",
@@ -22,7 +23,8 @@ assert.equal(
 	mirrorNote(note, "P/Trips Right/deuce rt hitches.excalidraw.md", "P/Trips Right/Deuce left.excalidraw.md", "deuce rt hitches", "Deuce left"),
 	[
 		"---",
-		'formation: "Trips Right"', // frontmatter untouched
+		'formation: "Trips Right"', // frontmatter untouched, except the ball position
+		'ball: "right hash"',
 		"---",
 		"# Deuce left", // retitled with the chosen name
 		"*Offense · Trips Left*",

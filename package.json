@@ -7,7 +7,7 @@
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc --noEmit && node esbuild.config.mjs production",
 		"lint": "eslint .",
-		"test": "node test/formations.test.ts && node test/mirror.test.ts && node test/share.test.ts",
+		"test": "node test/formations.test.ts && node test/mirror.test.ts && node test/share.test.ts && node test/routes.test.ts",
 		"deploy": "npm run build && cp main.js manifest.json styles.css \"${VAULT:-/mnt/c/Users/adml/Documents/playbook-test}/.obsidian/plugins/football-playbook/\"",
 		"version": "node version-bump.mjs && git add manifest.json versions.json"
 	},

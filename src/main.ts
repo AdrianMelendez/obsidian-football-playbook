@@ -8,6 +8,7 @@ import {
 	Notice,
 	Platform,
 	Plugin,
+	SearchComponent,
 	Setting,
 	TFile,
 	TFolder,
@@ -15,10 +16,13 @@ import {
 	View,
 	WorkspaceLeaf,
 	debounce,
+	getAllTags,
 	normalizePath,
 	setIcon,
 } from "obsidian";
-import { DrawingElement, FORMATS, Format, Player, Side, YD, playerNames, readPlayers } from "./formations";
+import { DrawingElement, FORMATS, Format, Player, Side, YD, onHash, playerNames, readPlayers } from "./formations";
+import { ROUTES, routePoints } from "./routes";
+import { parseTags, tagLabel } from "./tags";
 import { mirrorElements, mirrorNote, mirroredName } from "./mirror";
 import { FOLDER_TOKEN, PACKAGE_TYPE, PACKAGE_VERSION, PlaybookPackage, parsePackage } from "./share";
 
@@ -45,6 +49,7 @@ interface ExcalidrawElement extends DrawingElement {
 	roughness: number;
 	opacity: number;
 	endArrowhead?: string | null;
+	groupIds?: string[];
 }
 interface ExcalidrawAPI {
 	updateScene(scene: { appState: Record<string, unknown> }): void;
@@ -68,7 +73,11 @@ interface ExcalidrawAutomate {
 	getViewSelectedElements(): ExcalidrawElement[];
 	copyViewElementsToEAforEditing(elements: ExcalidrawElement[]): void;
 	getElements(): ExcalidrawElement[];
-	addElementsToView(repositionToCursor?: boolean, save?: boolean): Promise<boolean>;
+	addElementsToView(repositionToCursor?: boolean, save?: boolean, newElementsOnTop?: boolean): Promise<boolean>;
+	addArrow(
+		points: [number, number][],
+		formatting?: { startObjectId?: string; startArrowHead?: string | null; endArrowHead?: string | null }
+	): string;
 	getExcalidrawAPI(): ExcalidrawAPI | undefined;
 	destroy?(): void;
 }
@@ -76,6 +85,17 @@ declare global {
 	interface Window {
 		ExcalidrawAutomate?: { getAPI?(): ExcalidrawAutomate };
 	}
+}
+
+type Ball = "middle" | "left" | "right";
+
+interface NewPlay {
+	side: Side;
+	formation: string;
+	name: string;
+	opponent: string; // formation name, or "" for none
+	ball: Ball;
+	tags: string[];
 }
 
 interface Playbook {
@@ -168,6 +188,13 @@ export default class PlaybookPlugin extends Plugin {
 					view.addAction("paintbrush", "Tidy lines", () => void this.tidyLines(view).catch(showError)),
 					view.addAction("arrow-up-to-line", "Draw block", () => void this.setLineEnd(view, "bar").catch(showError)),
 					view.addAction("move-up-right", "Draw route", () => void this.setLineEnd(view, "arrow").catch(showError)),
+					view.addAction("route", "Add route", (evt) => {
+						const menu = new Menu();
+						for (const route of Object.keys(ROUTES)) {
+							menu.addItem((item) => item.setTitle(route).onClick(() => void this.addRoute(view, route).catch(showError)));
+						}
+						menu.showAtMouseEvent(evt);
+					}),
 				];
 				this.register(() => added.forEach((b) => b.remove()));
 				this.drawingButtons.set(view, added);
@@ -231,6 +258,59 @@ export default class PlaybookPlugin extends Plugin {
 		} finally {
 			ea.destroy?.();
 		}
+	}
+
+	// Draws a standard route from each selected player, attached to the player so it moves with them.
+	async addRoute(view: View, route: string) {
+		const ea = this.ea();
+		if (!ea) return;
+		try {
+			const path = view instanceof FileView ? view.file?.path : undefined;
+			if (!path || !ea.setView(view)) return;
+			const elements = ea.getViewElements();
+			const selected = ea.getViewSelectedElements();
+			const ids = new Set(selected.map((e) => e.id));
+			const groups = new Set(selected.flatMap((e) => e.groupIds ?? []));
+			// A player is a shape plus its label, grouped, so a selected label counts too.
+			const players = elements.filter((e) => e.customData?.playbook && (ids.has(e.id) || e.groupIds?.some((g) => groups.has(g))));
+			if (!players.length) {
+				new Notice("Select one or more players first, then pick a route.");
+				return;
+			}
+			// Routes break inside or outside relative to the ball, which is where the center is.
+			const center = elements.find((e) => e.customData?.playbook?.side === "offense" && e.customData.playbook.label === "C");
+			const ballX = center ? center.x + center.width / 2 : 0;
+			ea.copyViewElementsToEAforEditing(players);
+			Object.assign(ea.style, lineStyle(drawingSide(path)), {
+				strokeStyle: "solid",
+				roundness: ROUTES[route].curved ? { type: 2 } : null,
+			});
+			for (const player of players) {
+				const tag = player.customData?.playbook;
+				if (!tag) continue;
+				const forward = tag.side === (tag.primary ?? "offense") ? -1 : 1; // the team at the bottom moves up
+				const x = player.x + player.width / 2;
+				const y = player.y + player.height / 2 + (forward * player.height) / 2; // the player's edge facing the route
+				const points = routePoints(route, x, y, x < ballX ? -1 : 1, forward, YD);
+				ea.addArrow(points, { startObjectId: player.id, startArrowHead: null, endArrowHead: "arrow" });
+			}
+			await ea.addElementsToView(false, true, true); // on top: new elements otherwise go under the field
+		} finally {
+			ea.destroy?.();
+		}
+	}
+
+	// Tags of a play note, without the "play" tag every play has.
+	playTags(file: TFile): string[] {
+		const cache = this.app.metadataCache.getFileCache(file);
+		const tags = (cache && getAllTags(cache)) || [];
+		return [...new Set(tags.map((t) => t.replace(/^#/, "").toLowerCase()))].filter((t) => t !== "play");
+	}
+
+	async setTags(note: TFile, tags: string[]) {
+		await this.app.fileManager.processFrontMatter(note, (fm: Record<string, unknown>) => {
+			fm.tags = ["play", ...tags.filter((t) => t !== "play")];
+		});
 	}
 
 	// Route: a regular arrowhead. Block: a perpendicular bar at the end of the line. Changes the selected arrows, or,
@@ -486,7 +566,7 @@ export default class PlaybookPlugin extends Plugin {
 		await this.ensureLibrary(format);
 	}
 
-	async createPlay(pb: Playbook, side: Side, formation: string, name: string, opponent: string) {
+	async createPlay(pb: Playbook, { side, formation, name, opponent, ball, tags }: NewPlay) {
 		const folder = normalizePath(`${pb.folder.path}/${cap(side)}/${formation}`);
 		const note = `${folder}/${name}.md`;
 		const drawing = `${folder}/${name}${DRAWING_EXT}`;
@@ -497,12 +577,16 @@ export default class PlaybookPlugin extends Plugin {
 		const ea = this.ea();
 		if (!ea) return;
 		try {
-			const players = await this.readFormation(ea, pb.format, side, formation);
+			const format = FORMATS[pb.format];
+			// "Left" is the left of the drawing, which is turned around when the defense is at the bottom.
+			const shift = ball === "middle" || !format.hash ? 0 : (ball === "left" ? -1 : 1) * format.hash * (side === "offense" ? 1 : -1);
+			const players = onHash(await this.readFormation(ea, pb.format, side, formation), format, shift);
 			if (!players.length) {
 				new Notice(`Formation "${formation}" has no ${side} players.`);
 				return;
 			}
-			const opponentPlayers = opponent ? await this.readFormation(ea, pb.format, other(side), opponent) : [];
+			const opponentPlayers = opponent ? onHash(await this.readFormation(ea, pb.format, other(side), opponent), format, shift) : [];
+			const ballText = ball === "middle" ? "" : `${cap(ball)} hash`;
 			await ensureFolder(this.app, folder);
 			await this.app.vault.create(
 				note,
@@ -512,11 +596,12 @@ export default class PlaybookPlugin extends Plugin {
 					`side: ${side}`,
 					`formation: ${JSON.stringify(formation)}`,
 					...(opponent ? [`opponent: ${JSON.stringify(opponent)}`] : []),
-					"tags: [play]",
+					...(ballText ? [`ball: ${JSON.stringify(ballText.toLowerCase())}`] : []),
+					`tags: ${JSON.stringify(["play", ...tags.filter((t) => t !== "play")])}`,
 					`cssclasses: [${PLAY_CLASS}]`,
 					"---",
 					`# ${name}`,
-					`*${cap(side)} · ${formation}*`,
+					`*${[cap(side), formation, ballText].filter(Boolean).join(" · ")}*`,
 					"",
 					`![[${drawing}|700]]`,
 					"",
@@ -892,6 +977,11 @@ function drawPlayers(ea: ExcalidrawAutomate, side: Side, players: Player[], ghos
 class ManagerView extends ItemView {
 	sections = new Map<string, boolean>(); // open/closed per section, kept across re-renders
 	activePath = "";
+	filter = ""; // lowercase text from the filter box
+	activeTags = new Set<string>();
+	private warnEl?: HTMLElement;
+	private filterEl?: HTMLElement;
+	private bodyEl?: HTMLElement;
 
 	constructor(leaf: WorkspaceLeaf, private plugin: PlaybookPlugin) {
 		super(leaf);
@@ -923,30 +1013,42 @@ class ManagerView extends ItemView {
 
 	render() {
 		const el = this.contentEl;
-		el.empty();
-		el.addClass("playbook-manager");
 		this.activePath = this.app.workspace.getActiveFile()?.path ?? "";
-
-		if (!window.ExcalidrawAutomate) {
-			const warn = el.createDiv({ cls: "pb-warn", text: "Drawing plays needs the Excalidraw plugin." });
+		// The top bar and filter box are built once, so typing in the filter keeps focus; the rest is rebuilt.
+		if (!this.bodyEl) {
+			el.empty();
+			el.addClass("playbook-manager");
+			this.warnEl = el.createDiv();
+			const top = el.createDiv({ cls: "pb-top" });
+			const newPlay = top.createEl("button", { cls: "mod-cta pb-new-play" });
+			setIcon(newPlay.createSpan({ cls: "pb-btn-icon" }), "plus");
+			newPlay.createSpan({ text: "New play" });
+			newPlay.onclick = () => void this.plugin.newPlay().catch(showError);
+			const newBook = top.createEl("button", { attr: { "aria-label": "New playbook" } });
+			setIcon(newBook, "folder-plus");
+			newBook.onclick = () => new PlaybookModal(this.plugin).open();
+			const importBook = top.createEl("button", { attr: { "aria-label": "Import playbook" } });
+			setIcon(importBook, "import");
+			importBook.onclick = () => this.plugin.pickImportFile();
+			this.filterEl = el.createDiv({ cls: "pb-filter" });
+			new SearchComponent(this.filterEl).setPlaceholder("Filter plays: name, formation or tag").onChange((value) => {
+				this.filter = value.trim().toLowerCase();
+				this.render();
+			});
+			this.bodyEl = el.createDiv();
+		}
+		const body = this.bodyEl;
+		body.empty();
+		this.warnEl?.empty();
+		if (!window.ExcalidrawAutomate && this.warnEl) {
+			const warn = this.warnEl.createDiv({ cls: "pb-warn", text: "Drawing plays needs the Excalidraw plugin." });
 			warn.createEl("button", { text: "Install Excalidraw" }).onclick = () => window.open(EXCALIDRAW_URI);
 		}
 
-		const top = el.createDiv({ cls: "pb-top" });
-		const newPlay = top.createEl("button", { cls: "mod-cta pb-new-play" });
-		setIcon(newPlay.createSpan({ cls: "pb-btn-icon" }), "plus");
-		newPlay.createSpan({ text: "New play" });
-		newPlay.onclick = () => void this.plugin.newPlay().catch(showError);
-		const newBook = top.createEl("button", { attr: { "aria-label": "New playbook" } });
-		setIcon(newBook, "folder-plus");
-		newBook.onclick = () => new PlaybookModal(this.plugin).open();
-		const importBook = top.createEl("button", { attr: { "aria-label": "Import playbook" } });
-		setIcon(importBook, "import");
-		importBook.onclick = () => this.plugin.pickImportFile();
-
 		const playbooks = this.plugin.playbooks();
+		this.filterEl?.toggle(playbooks.length > 0);
 		if (!playbooks.length) {
-			const empty = el.createDiv({ cls: "pb-empty" });
+			const empty = body.createDiv({ cls: "pb-empty" });
 			setIcon(empty.createDiv({ cls: "pb-empty-icon" }), "clipboard-list");
 			empty.createDiv({ text: "No playbooks yet." });
 			empty.createEl("button", { text: "Create a playbook", cls: "mod-cta" }).onclick = () => new PlaybookModal(this.plugin).open();
@@ -954,10 +1056,45 @@ class ManagerView extends ItemView {
 			return;
 		}
 
+		// Tags in use, as chips: selecting chips shows only plays that have all of them.
+		const allPlays = playbooks.flatMap((pb) => sidesOf(pb).flatMap((side) => this.plugin.plays(pb, side).flatMap(([, plays]) => plays)));
+		const allTags = [...new Set(allPlays.flatMap((play) => this.plugin.playTags(play)))].sort();
+		for (const tag of this.activeTags) if (!allTags.includes(tag)) this.activeTags.delete(tag);
+		if (allTags.length) {
+			const chips = body.createDiv({ cls: "pb-chips" });
+			for (const tag of allTags) {
+				const chip = chips.createEl("button", { cls: "pb-chip", text: tagLabel(tag) });
+				chip.toggleClass("is-active", this.activeTags.has(tag));
+				chip.onclick = () => {
+					if (!this.activeTags.delete(tag)) this.activeTags.add(tag);
+					this.render();
+				};
+			}
+		}
+		const filtering = this.filter !== "" || this.activeTags.size > 0;
+		const matches = (play: TFile, formation: string) => {
+			const tags = this.plugin.playTags(play);
+			const text = [play.basename, formation, ...tags.map(tagLabel)].map((t) => t.toLowerCase());
+			return text.some((t) => t.includes(this.filter)) && [...this.activeTags].every((t) => tags.includes(t));
+		};
+
+		let shown = 0;
 		for (const pb of playbooks) {
+			const sides = sidesOf(pb).map((side): [Side, [TFolder, TFile[]][]] => [
+				side,
+				this.plugin
+					.plays(pb, side)
+					.map(([formation, plays]): [TFolder, TFile[]] => [formation, plays.filter((play) => matches(play, formation.name))])
+					.filter(([, plays]) => plays.length > 0),
+			]);
+			const playCount = (formations: [TFolder, TFile[]][]) => formations.reduce((n, [, plays]) => n + plays.length, 0);
+			const count = sides.reduce((n, [, formations]) => n + playCount(formations), 0);
+			if (filtering && !count) continue;
+			shown += count;
+
 			const badge = pb.format.replace(" tackle", ""); // short, so the name has room next to the buttons
-			const { summary, body } = this.section(el, `pb:${pb.name}`, pb.name, badge, playbooks.length === 1);
-			const actions = summary.createSpan({ cls: "pb-actions" });
+			const section = this.section(body, `pb:${pb.name}`, pb.name, badge, playbooks.length === 1, filtering);
+			const actions = section.summary.createSpan({ cls: "pb-actions" });
 			const share = () => void this.plugin.sharePlaybook(pb).catch(showError);
 			this.iconButton(actions, "plus", "New play", () => void this.plugin.newPlay(pb).catch(showError));
 			this.iconButton(actions, "share-2", "Share playbook file", share);
@@ -978,20 +1115,20 @@ class ManagerView extends ItemView {
 				const rect = button.getBoundingClientRect();
 				menu().showAtPosition({ x: rect.left, y: rect.bottom });
 			});
-			summary.oncontextmenu = (evt) => {
+			section.summary.oncontextmenu = (evt) => {
 				evt.preventDefault();
 				menu().showAtMouseEvent(evt);
 			};
 
-			for (const side of sidesOf(pb)) {
-				const formations = this.plugin.plays(pb, side);
-				const count = formations.reduce((n, [, plays]) => n + plays.length, 0);
-				this.label(body, cap(side), count ? String(count) : "");
-				if (!formations.length) body.createDiv({ cls: "pb-hint", text: "No plays yet" });
+			for (const [side, formations] of sides) {
+				if (filtering && !formations.length) continue;
+				const sideCount = playCount(formations);
+				this.label(section.body, cap(side), sideCount ? String(sideCount) : "");
+				if (!formations.length) section.body.createDiv({ cls: "pb-hint", text: "No plays yet" });
 
 				for (const [formation, plays] of formations) {
-					body.createDiv({ cls: "pb-group", text: formation.name });
-					const children = body.createDiv({ cls: "pb-children" });
+					section.body.createDiv({ cls: "pb-group", text: formation.name });
+					const children = section.body.createDiv({ cls: "pb-children" });
 					for (const play of plays) {
 						const drawing = this.plugin.drawingOf(play);
 						this.row(
@@ -1002,6 +1139,7 @@ class ManagerView extends ItemView {
 							[play.path, drawing?.path ?? ""],
 							() =>
 								this.itemMenu("play", play.basename, "The play note and its drawing are moved to the trash.", {
+									extras: [["Edit tags", "tags", () => this.editTags(play)]],
 									rename: (name) => this.plugin.movePlay(play, name, "rename"),
 									duplicate: (name) => this.plugin.movePlay(play, name, "duplicate"),
 									mirror: (name) => this.plugin.movePlay(play, name, "mirror"),
@@ -1016,10 +1154,11 @@ class ManagerView extends ItemView {
 				}
 			}
 		}
+		if (filtering && !shown) body.createDiv({ cls: "pb-hint", text: "No plays match the filter." });
 
 		// Formation library, for the formats in use. Each formation is a drawing: open it to see or move players.
 		const formats = this.plugin.formats();
-		const lib = this.section(el, LIBRARY, "Formations", "", false);
+		const lib = this.section(body, LIBRARY, "Formations", "", false);
 		lib.details.addClass("pb-library");
 		lib.body.createDiv({ cls: "pb-hint", text: "Open a formation to move or rename its players. New plays use its current drawing." });
 		for (const format of formats) {
@@ -1050,9 +1189,9 @@ class ManagerView extends ItemView {
 	}
 
 	// Collapsible block with a chevron, title and optional badge.
-	section(parent: HTMLElement, key: string, title: string, badge: string, defaultOpen: boolean) {
+	section(parent: HTMLElement, key: string, title: string, badge: string, defaultOpen: boolean, forceOpen = false) {
 		const details = parent.createEl("details", { cls: "pb-section" });
-		details.open = this.sections.get(key) ?? defaultOpen;
+		details.open = forceOpen || (this.sections.get(key) ?? defaultOpen);
 		details.ontoggle = () => this.sections.set(key, details.open);
 		const summary = details.createEl("summary", { cls: "pb-summary" });
 		setIcon(summary.createSpan({ cls: "pb-chevron" }), "chevron-right");
@@ -1112,6 +1251,15 @@ class ManagerView extends ItemView {
 			evt.preventDefault();
 			menu().showAtMouseEvent(evt);
 		};
+	}
+
+	editTags(play: TFile) {
+		const current = this.plugin.playTags(play).map(tagLabel).join(", ");
+		new NameModal(this.app, "Edit tags", current, (value) => this.plugin.setTags(play, parseTags(value)), {
+			label: "Tags",
+			description: "Separate with commas: red zone, 3rd down, pass.",
+			optional: true,
+		}).open();
 	}
 
 	askName(title: string, value: string, run: (name: string) => Promise<void>) {
@@ -1229,7 +1377,9 @@ class PlayModal extends FormModal {
 	side: Side;
 	formation = "";
 	opponent = "";
+	ball: Ball = "middle";
 	name = "";
+	tags = "";
 
 	constructor(private plugin: PlaybookPlugin, pb?: Playbook) {
 		super(plugin.app);
@@ -1281,7 +1431,21 @@ class PlayModal extends FormModal {
 				for (const f of this.plugin.formationFiles(this.pb.format, other(this.side)).map(drawingName)) d.addOption(f, f);
 				d.setValue(this.opponent).onChange((v) => (this.opponent = v));
 			});
+		if (FORMATS[this.pb.format].hash) {
+			new Setting(el).setName("Ball on").addDropdown((d) =>
+				d
+					.addOptions({ middle: "Middle", left: "Left hash", right: "Right hash" })
+					.setValue(this.ball)
+					.onChange((v) => (this.ball = v as Ball))
+			);
+		} else {
+			this.ball = "middle"; // no hashes in flag
+		}
 		new Setting(el).setName("Play name").addText((t) => t.setValue(this.name).onChange((v) => (this.name = v)));
+		new Setting(el)
+			.setName("Tags")
+			.setDesc("Optional. Separate with commas: red zone, 3rd down, pass.")
+			.addText((t) => t.setValue(this.tags).onChange((v) => (this.tags = v)));
 		new Setting(el).addButton((b) => b.setButtonText("Create play").setCta().onClick(() => this.submit()));
 	}
 
@@ -1289,26 +1453,37 @@ class PlayModal extends FormModal {
 		if (!this.formation) return void new Notice("No formations found. Use the command to restore built-in formations.");
 		if (!clean(this.name)) return void new Notice("Enter a play name.");
 		this.close();
-		void this.plugin.createPlay(this.pb, this.side, this.formation, clean(this.name), this.opponent).catch(showError);
+		const play = { side: this.side, formation: this.formation, name: clean(this.name), opponent: this.opponent, ball: this.ball };
+		void this.plugin.createPlay(this.pb, { ...play, tags: parseTags(this.tags) }).catch(showError);
 	}
 }
 
+// Asks for a name (cleaned for use as a file name), or with optional, for free text that may be empty.
 class NameModal extends FormModal {
-	constructor(app: App, private title: string, private name: string, private onSubmit: (name: string) => Promise<void>) {
+	constructor(
+		app: App,
+		private title: string,
+		private value: string,
+		private onSubmit: (value: string) => Promise<void>,
+		private options: { label?: string; description?: string; optional?: boolean } = {}
+	) {
 		super(app);
 	}
 
 	onOpen() {
 		super.onOpen();
 		this.titleEl.setText(this.title);
-		new Setting(this.contentEl).setName("Name").addText((t) => t.setValue(this.name).onChange((v) => (this.name = v)));
+		new Setting(this.contentEl)
+			.setName(this.options.label ?? "Name")
+			.setDesc(this.options.description ?? "")
+			.addText((t) => t.setValue(this.value).onChange((v) => (this.value = v)));
 		new Setting(this.contentEl).addButton((b) => b.setButtonText("Save").setCta().onClick(() => this.submit()));
 	}
 
 	submit() {
-		if (!clean(this.name)) return void new Notice("Enter a name.");
+		if (!this.options.optional && !clean(this.value)) return void new Notice("Enter a name.");
 		this.close();
-		void this.onSubmit(clean(this.name)).catch(showError);
+		void this.onSubmit(this.options.optional ? this.value : clean(this.value)).catch(showError);
 	}
 }
 

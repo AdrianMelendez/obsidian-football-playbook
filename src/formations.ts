@@ -126,3 +126,19 @@ export function readPlayers(elements: DrawingElement[], side: Side): Player[] {
 		return [[label, round(x), round(side === "offense" ? y : -y)]];
 	});
 }
+
+const CORE = 4; // yards from the ball: the line, tight ends and backs, who move with the ball
+
+// Moves a formation for the ball on a hash. shift: where the ball goes, in offense-relative yards. Players within CORE
+// yards of the ball move with it; wider players keep their place between the core and their sideline, scaled to fit,
+// so nobody ends up out of bounds.
+export function onHash(players: Player[], format: Format, shift: number): Player[] {
+	const half = format.width / 2;
+	return players.map(([label, x, depth]): Player => {
+		if (Math.abs(x) <= CORE) return [label, Math.round((x + shift) * 10) / 10 + 0, depth];
+		const s = Math.sign(x);
+		const t = (Math.abs(x) - CORE) / (half - CORE); // 0 at the edge of the core, 1 at the sideline
+		const edge = shift + s * CORE;
+		return [label, Math.round((edge + t * (s * half - edge)) * 10) / 10 + 0, depth];
+	});
+}
