@@ -12,6 +12,8 @@ Design and organize American football playbooks in Obsidian. Plays are drawn wit
 - **Defense first**: defense plays and formations are drawn from the defense's point of view, with the defense at the bottom and highlighted and the offense faded at the top.
 - **New play in one click**: pick a formation and get a drawing with the field (yard lines, hashes, yard numbers, line of scrimmage) and every player lined up. Optionally show the opponent's formation faded behind.
 - **Formation library**: built-in formations for each format, each one a drawing you can open, edit (move players, change labels), rename, duplicate or delete from the Formations section of the panel. You can also turn any play drawing into a formation with **Save current drawing as formation**. Deleted a built-in by mistake? Run **Restore built-in formations**.
+- **Routes and blocks**: buttons in the header of every play drawing. **Draw route** gives an arrow, **Draw block** a line ending in a perpendicular bar (the usual blocking symbol). Select lines first to switch them between route and block.
+- **One clean line style**: every line in a drawing gets the same color (black for offense, red for defense), thickness and clean, not hand-drawn, look, whenever the drawing opens or with **Tidy lines**. Straight, curved and dashed lines keep their shape.
 - **Notes for every play**: general notes plus an assignments table with one row per player.
 - **Mirror**: flip a play or formation to the other side in one click. "Trips Right" becomes "Trips Left", and left/right in the play's notes swap too.
 - **Playbook panel**: browse plays by side and formation; rename, duplicate, mirror or delete a play (note and drawing together) from its menu.

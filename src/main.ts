@@ -1,5 +1,6 @@
 import {
 	App,
+	FileView,
 	FuzzySuggestModal,
 	ItemView,
 	Menu,
@@ -11,6 +12,7 @@ import {
 	TFile,
 	TFolder,
 	Vault,
+	View,
 	WorkspaceLeaf,
 	debounce,
 	normalizePath,
@@ -29,11 +31,24 @@ const R = 0.45 * YD; // player circle radius
 const SIDES: Side[] = ["offense", "defense"];
 const PLAY_CLASS = "football-play"; // styled in styles.css
 const PAGE_BREAK = '<div style="page-break-after: always;"></div>';
+const COLORS: Record<Side, string> = { offense: "#1e1e1e", defense: "#e03131" };
+const LINE_TYPES = ["arrow", "line", "freedraw"];
+// The one look for routes, blocks and other lines in a drawing: the side's color, thin, clean (not hand-drawn).
+const lineStyle = (side: Side) => ({ strokeColor: COLORS[side], strokeWidth: 1, roughness: 0, opacity: 100 });
 
 // The subset of the Excalidraw plugin's ExcalidrawAutomate API used here.
 interface ExcalidrawElement extends DrawingElement {
 	id: string;
 	locked: boolean;
+	strokeColor: string;
+	strokeWidth: number;
+	roughness: number;
+	opacity: number;
+	endArrowhead?: string | null;
+}
+interface ExcalidrawAPI {
+	updateScene(scene: { appState: Record<string, unknown> }): void;
+	setActiveTool(tool: { type: string }): void;
 }
 interface ExcalidrawAutomate {
 	style: Record<string, unknown>;
@@ -48,9 +63,13 @@ interface ExcalidrawAutomate {
 	create(params: { filename: string; foldername: string; onNewPane: boolean; silent?: boolean }): Promise<string>;
 	getSceneFromFile(file: TFile): Promise<{ elements: ExcalidrawElement[] } | null>;
 	isExcalidrawFile(file: TFile): boolean;
-	setView(view: "active"): unknown;
+	setView(view: "active" | View): unknown;
 	getViewElements(): ExcalidrawElement[];
-	getExcalidrawAPI(): { updateScene(scene: { appState: Record<string, unknown> }): void } | undefined;
+	getViewSelectedElements(): ExcalidrawElement[];
+	copyViewElementsToEAforEditing(elements: ExcalidrawElement[]): void;
+	getElements(): ExcalidrawElement[];
+	addElementsToView(repositionToCursor?: boolean, save?: boolean): Promise<boolean>;
+	getExcalidrawAPI(): ExcalidrawAPI | undefined;
 	destroy?(): void;
 }
 declare global {
@@ -73,6 +92,12 @@ const clean = (s: string) => s.replace(/[\\/:*?"<>|#^[\]]/g, "").replace(/^\.+/,
 const other = (side: Side): Side => (side === "offense" ? "defense" : "offense");
 const sidesOf = (pb: Playbook): Side[] => SIDES.filter((side) => pb[side]);
 const drawingName = (file: TFile) => file.name.slice(0, -DRAWING_EXT.length);
+const isPlaybookDrawing = (path: string | undefined) => !!path?.startsWith(`${ROOT}/`) && path.endsWith(DRAWING_EXT);
+// Plays: Playbooks/<playbook>/<Side>/...; formations: Playbooks/Formations/<format>/<Side>/...
+const drawingSide = (path: string): Side => {
+	const parts = path.split("/");
+	return (parts[1] === "Formations" ? parts[3] : parts[2]) === "Defense" ? "defense" : "offense";
+};
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, undefined, { numeric: true });
 const showError = (e: unknown) => {
 	console.error(e);
@@ -100,7 +125,133 @@ export default class PlaybookPlugin extends Plugin {
 			name: "Restore built-in formations",
 			callback: () => void Promise.all(this.formats().map((f) => this.ensureLibrary(f, true))).then(() => new Notice("Built-in formations restored.")),
 		});
-		this.app.workspace.onLayoutReady(() => this.formats().forEach((f) => void this.ensureLibrary(f)));
+		const drawingCommands: [id: string, name: string, run: (view: View) => Promise<void>][] = [
+			["draw-route", "Draw route", (view) => this.setLineEnd(view, "arrow")],
+			["draw-block", "Draw block", (view) => this.setLineEnd(view, "bar")],
+			["tidy-lines", "Tidy lines", (view) => this.tidyLines(view)],
+		];
+		for (const [id, name, run] of drawingCommands) {
+			this.addCommand({
+				id,
+				name,
+				checkCallback: (checking) => {
+					const view = this.app.workspace.getActiveViewOfType(FileView);
+					if (view?.getViewType() !== "excalidraw" || !isPlaybookDrawing(view.file?.path)) return false;
+					if (!checking) void run(view).catch(showError);
+					return true;
+				},
+			});
+		}
+		this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.updateDrawingButtons()));
+		this.registerEvent(
+			this.app.workspace.on("file-open", (file) => {
+				this.updateDrawingButtons();
+				if (isPlaybookDrawing(file?.path) && file) void this.prepareDrawing(file).catch(showError);
+			})
+		);
+		this.app.workspace.onLayoutReady(() => {
+			this.updateDrawingButtons();
+			this.formats().forEach((f) => void this.ensureLibrary(f));
+		});
+	}
+
+	private drawingButtons = new WeakMap<View, HTMLElement[]>();
+
+	// Route, block and tidy buttons in the header of playbook drawings (hidden when the same tab shows another drawing).
+	private updateDrawingButtons() {
+		for (const leaf of this.app.workspace.getLeavesOfType("excalidraw")) {
+			const view = leaf.view;
+			if (!(view instanceof FileView)) continue; // not loaded yet
+			let buttons = this.drawingButtons.get(view);
+			if (!buttons) {
+				const added = [
+					view.addAction("paintbrush", "Tidy lines", () => void this.tidyLines(view).catch(showError)),
+					view.addAction("arrow-up-to-line", "Draw block", () => void this.setLineEnd(view, "bar").catch(showError)),
+					view.addAction("move-up-right", "Draw route", () => void this.setLineEnd(view, "arrow").catch(showError)),
+				];
+				this.register(() => added.forEach((b) => b.remove()));
+				this.drawingButtons.set(view, added);
+				buttons = added;
+			}
+			for (const button of buttons) button.toggle(isPlaybookDrawing(view.file?.path));
+		}
+	}
+
+	// Waits until the drawing at path is open and active, and returns its Excalidraw API.
+	private async waitForDrawing(ea: ExcalidrawAutomate, path: string): Promise<ExcalidrawAPI | undefined> {
+		for (let i = 0; i < 30; i++) {
+			await sleep(100);
+			if (this.app.workspace.getActiveFile()?.path !== path || !ea.setView("active")) continue;
+			const api = ea.getExcalidrawAPI();
+			if (api) return api;
+		}
+	}
+
+	// Gives every line in the drawing the standard style and makes it the default for new lines. ea must target the view.
+	private async applyLineStyle(ea: ExcalidrawAutomate, api: ExcalidrawAPI, path: string) {
+		const style = lineStyle(drawingSide(path));
+		const off = ea.getViewElements().filter((e) => {
+			if (!LINE_TYPES.includes(e.type) || e.locked || e.customData?.playbook) return false;
+			return e.strokeColor !== style.strokeColor || e.strokeWidth !== style.strokeWidth || e.roughness !== style.roughness || e.opacity !== style.opacity;
+		});
+		if (off.length) {
+			ea.copyViewElementsToEAforEditing(off);
+			for (const el of ea.getElements()) Object.assign(el, style);
+			await ea.addElementsToView(false, true);
+		}
+		api.updateScene({
+			appState: {
+				currentItemStrokeColor: style.strokeColor,
+				currentItemStrokeWidth: style.strokeWidth,
+				currentItemRoughness: style.roughness,
+				currentItemOpacity: style.opacity,
+			},
+		});
+	}
+
+	// Runs when a playbook drawing opens, so every drawing keeps one line style.
+	private async prepareDrawing(file: TFile) {
+		const ea = this.ea(true);
+		if (!ea) return;
+		try {
+			const api = await this.waitForDrawing(ea, file.path);
+			if (api) await this.applyLineStyle(ea, api, file.path);
+		} finally {
+			ea.destroy?.();
+		}
+	}
+
+	async tidyLines(view: View) {
+		const ea = this.ea();
+		if (!ea) return;
+		try {
+			const path = view instanceof FileView ? view.file?.path : undefined;
+			const api = ea.setView(view) ? ea.getExcalidrawAPI() : undefined;
+			if (api && path) await this.applyLineStyle(ea, api, path);
+		} finally {
+			ea.destroy?.();
+		}
+	}
+
+	// Route: a regular arrowhead. Block: a perpendicular bar at the end of the line. Changes the selected arrows, or,
+	// with nothing selected, picks the arrow tool so the next line drawn is one.
+	async setLineEnd(view: View, head: "arrow" | "bar") {
+		const ea = this.ea();
+		if (!ea) return;
+		try {
+			const api = ea.setView(view) ? ea.getExcalidrawAPI() : undefined;
+			if (!api) return;
+			const arrows = ea.getViewSelectedElements().filter((e) => e.type === "arrow");
+			if (arrows.length) {
+				ea.copyViewElementsToEAforEditing(arrows);
+				for (const el of ea.getElements()) el.endArrowhead = head;
+				await ea.addElementsToView(false, true);
+			}
+			api.updateScene({ appState: { currentItemEndArrowhead: head } });
+			if (!arrows.length) api.setActiveTool({ type: "arrow" });
+		} finally {
+			ea.destroy?.();
+		}
 	}
 
 	async openManager() {
@@ -244,12 +395,7 @@ export default class PlaybookPlugin extends Plugin {
 	// Excalidraw draws multi-point arrows curved by default; routes read better as straight segments. ea.create can't set
 	// this, so set it once the drawing is open. Excalidraw saves it with the drawing on the next change.
 	private async straightArrows(ea: ExcalidrawAutomate, path: string) {
-		for (let i = 0; i < 30; i++) {
-			await sleep(100);
-			if (this.app.workspace.getActiveFile()?.path !== path || !ea.setView("active")) continue;
-			const api = ea.getExcalidrawAPI();
-			if (api) return api.updateScene({ appState: { currentItemArrowType: "sharp" } });
-		}
+		(await this.waitForDrawing(ea, path))?.updateScene({ appState: { currentItemArrowType: "sharp" } });
 	}
 
 	// Renames, duplicates or mirrors a library formation. A rename also renames the play folders named after it in every
@@ -719,7 +865,7 @@ function drawField(ea: ExcalidrawAutomate, f: Format, primary: Side) {
 function drawPlayers(ea: ExcalidrawAutomate, side: Side, players: Player[], ghost: boolean, primary: Side) {
 	const dir = primary === "offense" ? 1 : -1;
 	Object.assign(ea.style, {
-		strokeColor: side === "offense" ? "#1e1e1e" : "#e03131",
+		strokeColor: COLORS[side],
 		backgroundColor: "#ffffff",
 		fillStyle: "solid",
 		strokeWidth: 2,
